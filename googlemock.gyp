@@ -2,7 +2,6 @@
     'target_defaults': {
         'include_dirs': [
             'include',
-            '<(DEPTH)/ext/googletest/include',
         ],
     },
     'targets': [
@@ -21,6 +20,14 @@
                 ':check-deps',
                 '<(DEPTH)/ext/googletest/googletest.gyp:gtest',
             ],
+            'direct_dependent_settings': {
+                'include_dirs': [
+                    'include',
+                ],
+            },
+            'export_dependent_settings': [
+                '<(DEPTH)/ext/googletest/googletest.gyp:gtest',
+            ],
         },
         {
             'target_name': 'gmock_main',
@@ -30,6 +37,9 @@
             ],
             'dependencies': [
                 ':check-deps',
+                ':gmock',
+            ],
+            'export_dependent_settings': [
                 ':gmock',
             ],
         },

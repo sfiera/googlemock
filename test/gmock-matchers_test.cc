@@ -52,21 +52,24 @@
 namespace testing {
 
 namespace internal {
-string FormatMatcherDescriptionSyntaxError(const char* description,
-                                           const char* error_pos);
-int GetParamIndex(const char* param_names[], const string& param_name);
 string JoinAsTuple(const Strings& fields);
-bool SkipPrefix(const char* prefix, const char** pstr);
 }  // namespace internal
 
 namespace gmock_matchers_test {
 
+using std::list;
 using std::make_pair;
 using std::map;
 using std::multimap;
+using std::multiset;
+using std::ostream;
 using std::pair;
+using std::set;
 using std::stringstream;
+using std::tr1::get;
 using std::tr1::make_tuple;
+using std::tr1::tuple;
+using std::vector;
 using testing::A;
 using testing::AllArgs;
 using testing::AllOf;
@@ -102,6 +105,7 @@ using testing::Not;
 using testing::NotNull;
 using testing::Pair;
 using testing::Pointee;
+using testing::Pointwise;
 using testing::PolymorphicMatcher;
 using testing::Property;
 using testing::Ref;
@@ -118,21 +122,13 @@ using testing::_;
 using testing::internal::DummyMatchResultListener;
 using testing::internal::ExplainMatchFailureTupleTo;
 using testing::internal::FloatingEqMatcher;
-using testing::internal::FormatMatcherDescriptionSyntaxError;
-using testing::internal::GetParamIndex;
-using testing::internal::Interpolation;
-using testing::internal::Interpolations;
+using testing::internal::FormatMatcherDescription;
 using testing::internal::JoinAsTuple;
 using testing::internal::RE;
-using testing::internal::SkipPrefix;
 using testing::internal::StreamMatchResultListener;
 using testing::internal::String;
 using testing::internal::StringMatchResultListener;
 using testing::internal::Strings;
-using testing::internal::ValidateMatcherDescription;
-using testing::internal::kInvalidInterpolation;
-using testing::internal::kPercentInterpolation;
-using testing::internal::kTupleInterpolation;
 using testing::internal::linked_ptr;
 using testing::internal::scoped_ptr;
 using testing::internal::string;
@@ -142,7 +138,7 @@ class GreaterThanMatcher : public MatcherInterface<int> {
  public:
   explicit GreaterThanMatcher(int rhs) : rhs_(rhs) {}
 
-  virtual void DescribeTo(::std::ostream* os) const {
+  virtual void DescribeTo(ostream* os) const {
     *os << "is > " << rhs_;
   }
 
@@ -187,9 +183,9 @@ string DescribeNegation(const Matcher<T>& m) {
 // Returns the reason why x matches, or doesn't match, m.
 template <typename MatcherType, typename Value>
 string Explain(const MatcherType& m, const Value& x) {
-  stringstream ss;
-  m.ExplainMatchResultTo(x, &ss);
-  return ss.str();
+  StringMatchResultListener listener;
+  ExplainMatchResult(m, x, &listener);
+  return listener.str();
 }
 
 TEST(MatchResultListenerTest, StreamingWorks) {
@@ -226,7 +222,7 @@ class EvenMatcherImpl : public MatcherInterface<int> {
     return x % 2 == 0;
   }
 
-  virtual void DescribeTo(::std::ostream* os) const {
+  virtual void DescribeTo(ostream* os) const {
     *os << "is an even number";
   }
 
@@ -256,7 +252,7 @@ class NewEvenMatcherImpl : public MatcherInterface<int> {
     return match;
   }
 
-  virtual void DescribeTo(::std::ostream* os) const {
+  virtual void DescribeTo(ostream* os) const {
     *os << "is an even number";
   }
 };
@@ -363,20 +359,20 @@ TEST(MakeMatcherTest, ConstructsMatcherFromMatcherInterface) {
 
 // Tests that MakePolymorphicMatcher() can construct a polymorphic
 // matcher from its implementation using the old API.
-const int bar = 1;
+const int g_bar = 1;
 class ReferencesBarOrIsZeroImpl {
  public:
   template <typename T>
   bool MatchAndExplain(const T& x,
                        MatchResultListener* /* listener */) const {
     const void* p = &x;
-    return p == &bar || x == 0;
+    return p == &g_bar || x == 0;
   }
 
-  void DescribeTo(::std::ostream* os) const { *os << "bar or zero"; }
+  void DescribeTo(ostream* os) const { *os << "g_bar or zero"; }
 
-  void DescribeNegationTo(::std::ostream* os) const {
-    *os << "doesn't reference bar and is not zero";
+  void DescribeNegationTo(ostream* os) const {
+    *os << "doesn't reference g_bar and is not zero";
   }
 };
 
@@ -391,24 +387,24 @@ TEST(MakePolymorphicMatcherTest, ConstructsMatcherUsingOldAPI) {
   Matcher<const int&> m1 = ReferencesBarOrIsZero();
   EXPECT_TRUE(m1.Matches(0));
   // Verifies that the identity of a by-reference argument is preserved.
-  EXPECT_TRUE(m1.Matches(bar));
+  EXPECT_TRUE(m1.Matches(g_bar));
   EXPECT_FALSE(m1.Matches(1));
-  EXPECT_EQ("bar or zero", Describe(m1));
+  EXPECT_EQ("g_bar or zero", Describe(m1));
 
   // Using a polymorphic matcher to match a value type.
   Matcher<double> m2 = ReferencesBarOrIsZero();
   EXPECT_TRUE(m2.Matches(0.0));
   EXPECT_FALSE(m2.Matches(0.1));
-  EXPECT_EQ("bar or zero", Describe(m2));
+  EXPECT_EQ("g_bar or zero", Describe(m2));
 }
 
 // Tests implementing a polymorphic matcher using MatchAndExplain().
 
 class PolymorphicIsEvenImpl {
  public:
-  void DescribeTo(::std::ostream* os) const { *os << "is even"; }
+  void DescribeTo(ostream* os) const { *os << "is even"; }
 
-  void DescribeNegationTo(::std::ostream* os) const {
+  void DescribeNegationTo(ostream* os) const {
     *os << "is odd";
   }
 
@@ -1148,7 +1144,7 @@ TEST(KeyTest, SafelyCastsInnerMatcher) {
 }
 
 TEST(KeyTest, InsideContainsUsingMap) {
-  std::map<int, char> container;
+  map<int, char> container;
   container.insert(make_pair(1, 'a'));
   container.insert(make_pair(2, 'b'));
   container.insert(make_pair(4, 'c'));
@@ -1157,7 +1153,7 @@ TEST(KeyTest, InsideContainsUsingMap) {
 }
 
 TEST(KeyTest, InsideContainsUsingMultimap) {
-  std::multimap<int, char> container;
+  multimap<int, char> container;
   container.insert(make_pair(1, 'a'));
   container.insert(make_pair(2, 'b'));
   container.insert(make_pair(4, 'c'));
@@ -1266,7 +1262,7 @@ TEST(PairTest, SafelyCastsInnerMatchers) {
 }
 
 TEST(PairTest, InsideContainsUsingMap) {
-  std::map<int, char> container;
+  map<int, char> container;
   container.insert(make_pair(1, 'a'));
   container.insert(make_pair(2, 'b'));
   container.insert(make_pair(4, 'c'));
@@ -1759,7 +1755,7 @@ TEST(Eq2Test, MatchesEqualArguments) {
 // Tests that Eq() describes itself properly.
 TEST(Eq2Test, CanDescribeSelf) {
   Matcher<const Tuple2&> m = Eq();
-  EXPECT_EQ("are a pair (x, y) where x == y", Describe(m));
+  EXPECT_EQ("are an equal pair", Describe(m));
 }
 
 // Tests that Ge() matches a 2-tuple where the first field >= the
@@ -1774,7 +1770,7 @@ TEST(Ge2Test, MatchesGreaterThanOrEqualArguments) {
 // Tests that Ge() describes itself properly.
 TEST(Ge2Test, CanDescribeSelf) {
   Matcher<const Tuple2&> m = Ge();
-  EXPECT_EQ("are a pair (x, y) where x >= y", Describe(m));
+  EXPECT_EQ("are a pair where the first >= the second", Describe(m));
 }
 
 // Tests that Gt() matches a 2-tuple where the first field > the
@@ -1789,7 +1785,7 @@ TEST(Gt2Test, MatchesGreaterThanArguments) {
 // Tests that Gt() describes itself properly.
 TEST(Gt2Test, CanDescribeSelf) {
   Matcher<const Tuple2&> m = Gt();
-  EXPECT_EQ("are a pair (x, y) where x > y", Describe(m));
+  EXPECT_EQ("are a pair where the first > the second", Describe(m));
 }
 
 // Tests that Le() matches a 2-tuple where the first field <= the
@@ -1804,7 +1800,7 @@ TEST(Le2Test, MatchesLessThanOrEqualArguments) {
 // Tests that Le() describes itself properly.
 TEST(Le2Test, CanDescribeSelf) {
   Matcher<const Tuple2&> m = Le();
-  EXPECT_EQ("are a pair (x, y) where x <= y", Describe(m));
+  EXPECT_EQ("are a pair where the first <= the second", Describe(m));
 }
 
 // Tests that Lt() matches a 2-tuple where the first field < the
@@ -1819,7 +1815,7 @@ TEST(Lt2Test, MatchesLessThanArguments) {
 // Tests that Lt() describes itself properly.
 TEST(Lt2Test, CanDescribeSelf) {
   Matcher<const Tuple2&> m = Lt();
-  EXPECT_EQ("are a pair (x, y) where x < y", Describe(m));
+  EXPECT_EQ("are a pair where the first < the second", Describe(m));
 }
 
 // Tests that Ne() matches a 2-tuple where the first field != the
@@ -1834,7 +1830,7 @@ TEST(Ne2Test, MatchesUnequalArguments) {
 // Tests that Ne() describes itself properly.
 TEST(Ne2Test, CanDescribeSelf) {
   Matcher<const Tuple2&> m = Ne();
-  EXPECT_EQ("are a pair (x, y) where x != y", Describe(m));
+  EXPECT_EQ("are an unequal pair", Describe(m));
 }
 
 // Tests that Not(m) matches any value that doesn't match m.
@@ -1859,6 +1855,16 @@ TEST(NotTest, NotMatcherSafelyCastsMonomorphicMatchers) {
   Matcher<const int&> m = Not(greater_than_5);
   Matcher<int&> m2 = Not(greater_than_5);
   Matcher<int&> m3 = Not(m);
+}
+
+// Helper to allow easy testing of AllOf matchers with num parameters.
+void AllOfMatches(int num, const Matcher<int>& m) {
+  SCOPED_TRACE(Describe(m));
+  EXPECT_TRUE(m.Matches(0));
+  for (int i = 1; i <= num; ++i) {
+    EXPECT_FALSE(m.Matches(i));
+  }
+  EXPECT_TRUE(m.Matches(num + 1));
 }
 
 // Tests that AllOf(m1, ..., mn) matches any value that matches all of
@@ -1888,6 +1894,23 @@ TEST(AllOfTest, MatchesWhenAllMatch) {
   EXPECT_TRUE(m.Matches(0));
   EXPECT_TRUE(m.Matches(1));
   EXPECT_FALSE(m.Matches(3));
+
+  // The following tests for varying number of sub-matchers. Due to the way
+  // the sub-matchers are handled it is enough to test every sub-matcher once
+  // with sub-matchers using the same matcher type. Varying matcher types are
+  // checked for above.
+  AllOfMatches(2, AllOf(Ne(1), Ne(2)));
+  AllOfMatches(3, AllOf(Ne(1), Ne(2), Ne(3)));
+  AllOfMatches(4, AllOf(Ne(1), Ne(2), Ne(3), Ne(4)));
+  AllOfMatches(5, AllOf(Ne(1), Ne(2), Ne(3), Ne(4), Ne(5)));
+  AllOfMatches(6, AllOf(Ne(1), Ne(2), Ne(3), Ne(4), Ne(5), Ne(6)));
+  AllOfMatches(7, AllOf(Ne(1), Ne(2), Ne(3), Ne(4), Ne(5), Ne(6), Ne(7)));
+  AllOfMatches(8, AllOf(Ne(1), Ne(2), Ne(3), Ne(4), Ne(5), Ne(6), Ne(7),
+                        Ne(8)));
+  AllOfMatches(9, AllOf(Ne(1), Ne(2), Ne(3), Ne(4), Ne(5), Ne(6), Ne(7),
+                        Ne(8), Ne(9)));
+  AllOfMatches(10, AllOf(Ne(1), Ne(2), Ne(3), Ne(4), Ne(5), Ne(6), Ne(7), Ne(8),
+                         Ne(9), Ne(10)));
 }
 
 // Tests that AllOf(m1, ..., mn) describes itself properly.
@@ -2010,6 +2033,16 @@ TEST(AllOfTest, ExplainsResult) {
   EXPECT_EQ("which is 5 less than 20", Explain(m, 15));
 }
 
+// Helper to allow easy testing of AnyOf matchers with num parameters.
+void AnyOfMatches(int num, const Matcher<int>& m) {
+  SCOPED_TRACE(Describe(m));
+  EXPECT_FALSE(m.Matches(0));
+  for (int i = 1; i <= num; ++i) {
+    EXPECT_TRUE(m.Matches(i));
+  }
+  EXPECT_FALSE(m.Matches(num + 1));
+}
+
 // Tests that AnyOf(m1, ..., mn) matches any value that matches at
 // least one of the given matchers.
 TEST(AnyOfTest, MatchesWhenAnyMatches) {
@@ -2037,6 +2070,20 @@ TEST(AnyOfTest, MatchesWhenAnyMatches) {
   EXPECT_TRUE(m.Matches(11));
   EXPECT_TRUE(m.Matches(3));
   EXPECT_FALSE(m.Matches(2));
+
+  // The following tests for varying number of sub-matchers. Due to the way
+  // the sub-matchers are handled it is enough to test every sub-matcher once
+  // with sub-matchers using the same matcher type. Varying matcher types are
+  // checked for above.
+  AnyOfMatches(2, AnyOf(1, 2));
+  AnyOfMatches(3, AnyOf(1, 2, 3));
+  AnyOfMatches(4, AnyOf(1, 2, 3, 4));
+  AnyOfMatches(5, AnyOf(1, 2, 3, 4, 5));
+  AnyOfMatches(6, AnyOf(1, 2, 3, 4, 5, 6));
+  AnyOfMatches(7, AnyOf(1, 2, 3, 4, 5, 6, 7));
+  AnyOfMatches(8, AnyOf(1, 2, 3, 4, 5, 6, 7, 8));
+  AnyOfMatches(9, AnyOf(1, 2, 3, 4, 5, 6, 7, 8, 9));
+  AnyOfMatches(10, AnyOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
 }
 
 // Tests that AnyOf(m1, ..., mn) describes itself properly.
@@ -3336,11 +3383,11 @@ class DivisibleByImpl {
     return (n % divider_) == 0;
   }
 
-  void DescribeTo(::std::ostream* os) const {
+  void DescribeTo(ostream* os) const {
     *os << "is divisible by " << divider_;
   }
 
-  void DescribeNegationTo(::std::ostream* os) const {
+  void DescribeNegationTo(ostream* os) const {
     *os << "is not divisible by " << divider_;
   }
 
@@ -3442,10 +3489,10 @@ template <typename T>
 class ContainerEqTest : public testing::Test {};
 
 typedef testing::Types<
-    std::set<int>,
-    std::vector<size_t>,
-    std::multiset<size_t>,
-    std::list<int> >
+    set<int>,
+    vector<size_t>,
+    multiset<size_t>,
+    list<int> >
     ContainerEqTestTypes;
 
 TYPED_TEST_CASE(ContainerEqTest, ContainerEqTestTypes);
@@ -3513,9 +3560,9 @@ TYPED_TEST(ContainerEqTest, DuplicateDifference) {
 TEST(ContainerEqExtraTest, MultipleValuesMissing) {
   static const int vals[] = {1, 1, 2, 3, 5, 8};
   static const int test_vals[] = {2, 1, 5};
-  std::vector<int> my_set(vals, vals + 6);
-  std::vector<int> test_set(test_vals, test_vals + 3);
-  const Matcher<std::vector<int> > m = ContainerEq(my_set);
+  vector<int> my_set(vals, vals + 6);
+  vector<int> test_set(test_vals, test_vals + 3);
+  const Matcher<vector<int> > m = ContainerEq(my_set);
   EXPECT_FALSE(m.Matches(test_set));
   EXPECT_EQ("which doesn't have these expected elements: 3, 8",
             Explain(m, test_set));
@@ -3526,9 +3573,9 @@ TEST(ContainerEqExtraTest, MultipleValuesMissing) {
 TEST(ContainerEqExtraTest, MultipleValuesAdded) {
   static const int vals[] = {1, 1, 2, 3, 5, 8};
   static const int test_vals[] = {1, 2, 92, 3, 5, 8, 46};
-  std::list<size_t> my_set(vals, vals + 6);
-  std::list<size_t> test_set(test_vals, test_vals + 7);
-  const Matcher<const std::list<size_t>&> m = ContainerEq(my_set);
+  list<size_t> my_set(vals, vals + 6);
+  list<size_t> test_set(test_vals, test_vals + 7);
+  const Matcher<const list<size_t>&> m = ContainerEq(my_set);
   EXPECT_FALSE(m.Matches(test_set));
   EXPECT_EQ("which has these unexpected elements: 92, 46",
             Explain(m, test_set));
@@ -3538,9 +3585,9 @@ TEST(ContainerEqExtraTest, MultipleValuesAdded) {
 TEST(ContainerEqExtraTest, MultipleValuesAddedAndRemoved) {
   static const int vals[] = {1, 1, 2, 3, 5, 8};
   static const int test_vals[] = {1, 2, 3, 92, 46};
-  std::list<size_t> my_set(vals, vals + 6);
-  std::list<size_t> test_set(test_vals, test_vals + 5);
-  const Matcher<const std::list<size_t> > m = ContainerEq(my_set);
+  list<size_t> my_set(vals, vals + 6);
+  list<size_t> test_set(test_vals, test_vals + 5);
+  const Matcher<const list<size_t> > m = ContainerEq(my_set);
   EXPECT_FALSE(m.Matches(test_set));
   EXPECT_EQ("which has these unexpected elements: 92, 46,\n"
             "and doesn't have these expected elements: 5, 8",
@@ -3552,9 +3599,9 @@ TEST(ContainerEqExtraTest, MultipleValuesAddedAndRemoved) {
 TEST(ContainerEqExtraTest, MultiSetOfIntDuplicateDifference) {
   static const int vals[] = {1, 1, 2, 3, 5, 8};
   static const int test_vals[] = {1, 2, 3, 5, 8};
-  std::vector<int> my_set(vals, vals + 6);
-  std::vector<int> test_set(test_vals, test_vals + 5);
-  const Matcher<std::vector<int> > m = ContainerEq(my_set);
+  vector<int> my_set(vals, vals + 6);
+  vector<int> test_set(test_vals, test_vals + 5);
+  const Matcher<vector<int> > m = ContainerEq(my_set);
   EXPECT_TRUE(m.Matches(my_set));
   EXPECT_FALSE(m.Matches(test_set));
   // There is nothing to report when both sets contain all the same values.
@@ -3564,15 +3611,15 @@ TEST(ContainerEqExtraTest, MultiSetOfIntDuplicateDifference) {
 // Tests that ContainerEq works for non-trivial associative containers,
 // like maps.
 TEST(ContainerEqExtraTest, WorksForMaps) {
-  std::map<int, std::string> my_map;
+  map<int, std::string> my_map;
   my_map[0] = "a";
   my_map[1] = "b";
 
-  std::map<int, std::string> test_map;
+  map<int, std::string> test_map;
   test_map[0] = "aa";
   test_map[1] = "b";
 
-  const Matcher<const std::map<int, std::string>&> m = ContainerEq(my_map);
+  const Matcher<const map<int, std::string>&> m = ContainerEq(my_map);
   EXPECT_TRUE(m.Matches(my_map));
   EXPECT_FALSE(m.Matches(test_map));
 
@@ -3635,176 +3682,6 @@ TEST(ContainerEqExtraTest, CopiesNativeArrayParameter) {
   EXPECT_THAT(a1, m);
 }
 
-// Tests GetParamIndex().
-
-TEST(GetParamIndexTest, WorksForEmptyParamList) {
-  const char* params[] = { NULL };
-  EXPECT_EQ(kTupleInterpolation, GetParamIndex(params, "*"));
-  EXPECT_EQ(kInvalidInterpolation, GetParamIndex(params, "a"));
-}
-
-TEST(GetParamIndexTest, RecognizesStar) {
-  const char* params[] = { "a", "b", NULL };
-  EXPECT_EQ(kTupleInterpolation, GetParamIndex(params, "*"));
-}
-
-TEST(GetParamIndexTest, RecognizesKnownParam) {
-  const char* params[] = { "foo", "bar", NULL };
-  EXPECT_EQ(0, GetParamIndex(params, "foo"));
-  EXPECT_EQ(1, GetParamIndex(params, "bar"));
-}
-
-TEST(GetParamIndexTest, RejectsUnknownParam) {
-  const char* params[] = { "foo", "bar", NULL };
-  EXPECT_EQ(kInvalidInterpolation, GetParamIndex(params, "foobar"));
-}
-
-// Tests SkipPrefix().
-
-TEST(SkipPrefixTest, SkipsWhenPrefixMatches) {
-  const char* const str = "hello";
-
-  const char* p = str;
-  EXPECT_TRUE(SkipPrefix("", &p));
-  EXPECT_EQ(str, p);
-
-  p = str;
-  EXPECT_TRUE(SkipPrefix("hell", &p));
-  EXPECT_EQ(str + 4, p);
-}
-
-TEST(SkipPrefixTest, DoesNotSkipWhenPrefixDoesNotMatch) {
-  const char* const str = "world";
-
-  const char* p = str;
-  EXPECT_FALSE(SkipPrefix("W", &p));
-  EXPECT_EQ(str, p);
-
-  p = str;
-  EXPECT_FALSE(SkipPrefix("world!", &p));
-  EXPECT_EQ(str, p);
-}
-
-// Tests FormatMatcherDescriptionSyntaxError().
-TEST(FormatMatcherDescriptionSyntaxErrorTest, FormatsCorrectly) {
-  const char* const description = "hello%world";
-  EXPECT_EQ("Syntax error at index 5 in matcher description \"hello%world\": ",
-            FormatMatcherDescriptionSyntaxError(description, description + 5));
-}
-
-// Tests ValidateMatcherDescription().
-
-TEST(ValidateMatcherDescriptionTest, AcceptsEmptyDescription) {
-  const char* params[] = { "foo", "bar", NULL };
-  EXPECT_THAT(ValidateMatcherDescription(params, ""),
-              ElementsAre());
-}
-
-TEST(ValidateMatcherDescriptionTest,
-     AcceptsNonEmptyDescriptionWithNoInterpolation) {
-  const char* params[] = { "foo", "bar", NULL };
-  EXPECT_THAT(ValidateMatcherDescription(params, "a simple description"),
-              ElementsAre());
-}
-
-// The MATCHER*() macros trigger warning C4100 (unreferenced formal
-// parameter) in MSVC with -W4.  Unfortunately they cannot be fixed in
-// the macro definition, as the warnings are generated when the macro
-// is expanded and macro expansion cannot contain #pragma.  Therefore
-// we suppress them here.
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4100)
-#endif
-
-// We use MATCHER_P3() to define a matcher for testing
-// ValidateMatcherDescription(); otherwise we'll end up with much
-// plumbing code.  This is not circular as
-// ValidateMatcherDescription() doesn't affect whether the matcher
-// matches a value or not.
-MATCHER_P3(EqInterpolation, start, end, index, "equals Interpolation%(*)s") {
-  return arg.start_pos == start && arg.end_pos == end &&
-      arg.param_index == index;
-}
-
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
-TEST(ValidateMatcherDescriptionTest, AcceptsPercentInterpolation) {
-  const char* params[] = { "foo", NULL };
-  const char* const desc = "one %%";
-  EXPECT_THAT(ValidateMatcherDescription(params, desc),
-              ElementsAre(EqInterpolation(desc + 4, desc + 6,
-                                          kPercentInterpolation)));
-}
-
-TEST(ValidateMatcherDescriptionTest, AcceptsTupleInterpolation) {
-  const char* params[] = { "foo", "bar", "baz", NULL };
-  const char* const desc = "%(*)s after";
-  EXPECT_THAT(ValidateMatcherDescription(params, desc),
-              ElementsAre(EqInterpolation(desc, desc + 5,
-                                          kTupleInterpolation)));
-}
-
-TEST(ValidateMatcherDescriptionTest, AcceptsParamInterpolation) {
-  const char* params[] = { "foo", "bar", "baz", NULL };
-  const char* const desc = "a %(bar)s.";
-  EXPECT_THAT(ValidateMatcherDescription(params, desc),
-              ElementsAre(EqInterpolation(desc + 2, desc + 9, 1)));
-}
-
-TEST(ValidateMatcherDescriptionTest, AcceptsMultiplenterpolations) {
-  const char* params[] = { "foo", "bar", "baz", NULL };
-  const char* const desc = "%(baz)s %(foo)s %(bar)s";
-  EXPECT_THAT(ValidateMatcherDescription(params, desc),
-              ElementsAre(EqInterpolation(desc, desc + 7, 2),
-                          EqInterpolation(desc + 8, desc + 15, 0),
-                          EqInterpolation(desc + 16, desc + 23, 1)));
-}
-
-TEST(ValidateMatcherDescriptionTest, AcceptsRepeatedParams) {
-  const char* params[] = { "foo", "bar", NULL };
-  const char* const desc = "%(foo)s and %(foo)s";
-  EXPECT_THAT(ValidateMatcherDescription(params, desc),
-              ElementsAre(EqInterpolation(desc, desc + 7, 0),
-                          EqInterpolation(desc + 12, desc + 19, 0)));
-}
-
-TEST(ValidateMatcherDescriptionTest, RejectsUnknownParam) {
-  const char* params[] = { "a", "bar", NULL };
-  EXPECT_NONFATAL_FAILURE({
-    EXPECT_THAT(ValidateMatcherDescription(params, "%(foo)s"),
-                ElementsAre());
-  }, "Syntax error at index 2 in matcher description \"%(foo)s\": "
-     "\"foo\" is an invalid parameter name.");
-}
-
-TEST(ValidateMatcherDescriptionTest, RejectsUnfinishedParam) {
-  const char* params[] = { "a", "bar", NULL };
-  EXPECT_NONFATAL_FAILURE({
-    EXPECT_THAT(ValidateMatcherDescription(params, "%(foo)"),
-                ElementsAre());
-  }, "Syntax error at index 0 in matcher description \"%(foo)\": "
-     "an interpolation must end with \")s\", but \"%(foo)\" does not.");
-
-  EXPECT_NONFATAL_FAILURE({
-    EXPECT_THAT(ValidateMatcherDescription(params, "x%(a"),
-                ElementsAre());
-  }, "Syntax error at index 1 in matcher description \"x%(a\": "
-     "an interpolation must end with \")s\", but \"%(a\" does not.");
-}
-
-TEST(ValidateMatcherDescriptionTest, RejectsSinglePercent) {
-  const char* params[] = { "a", NULL };
-  EXPECT_NONFATAL_FAILURE({
-    EXPECT_THAT(ValidateMatcherDescription(params, "a %."),
-                ElementsAre());
-  }, "Syntax error at index 2 in matcher description \"a %.\": "
-     "use \"%%\" instead of \"%\" to print \"%\".");
-
-}
-
 // Tests JoinAsTuple().
 
 TEST(JoinAsTupleTest, JoinsEmptyTuple) {
@@ -3831,116 +3708,19 @@ TEST(JoinAsTupleTest, JoinsTenTuple) {
 
 TEST(FormatMatcherDescriptionTest, WorksForEmptyDescription) {
   EXPECT_EQ("is even",
-            FormatMatcherDescription("IsEven", "", Interpolations(),
-                                     Strings()));
+            FormatMatcherDescription(false, "IsEven", Strings()));
+  EXPECT_EQ("not (is even)",
+            FormatMatcherDescription(true, "IsEven", Strings()));
 
   const char* params[] = { "5" };
   EXPECT_EQ("equals 5",
-            FormatMatcherDescription("Equals", "", Interpolations(),
+            FormatMatcherDescription(false, "Equals",
                                      Strings(params, params + 1)));
 
   const char* params2[] = { "5", "8" };
   EXPECT_EQ("is in range (5, 8)",
-            FormatMatcherDescription("IsInRange", "", Interpolations(),
+            FormatMatcherDescription(false, "IsInRange",
                                      Strings(params2, params2 + 2)));
-}
-
-TEST(FormatMatcherDescriptionTest, WorksForDescriptionWithNoInterpolation) {
-  EXPECT_EQ("is positive",
-            FormatMatcherDescription("Gt0", "is positive", Interpolations(),
-                                     Strings()));
-
-  const char* params[] = { "5", "6" };
-  EXPECT_EQ("is negative",
-            FormatMatcherDescription("Lt0", "is negative", Interpolations(),
-                                     Strings(params, params + 2)));
-}
-
-TEST(FormatMatcherDescriptionTest,
-     WorksWhenDescriptionStartsWithInterpolation) {
-  const char* params[] = { "5" };
-  const char* const desc = "%(num)s times bigger";
-  const Interpolation interp[] = { Interpolation(desc, desc + 7, 0) };
-  EXPECT_EQ("5 times bigger",
-            FormatMatcherDescription("Foo", desc,
-                                     Interpolations(interp, interp + 1),
-                                     Strings(params, params + 1)));
-}
-
-TEST(FormatMatcherDescriptionTest,
-     WorksWhenDescriptionEndsWithInterpolation) {
-  const char* params[] = { "5", "6" };
-  const char* const desc = "is bigger than %(y)s";
-  const Interpolation interp[] = { Interpolation(desc + 15, desc + 20, 1) };
-  EXPECT_EQ("is bigger than 6",
-            FormatMatcherDescription("Foo", desc,
-                                     Interpolations(interp, interp + 1),
-                                     Strings(params, params + 2)));
-}
-
-TEST(FormatMatcherDescriptionTest,
-     WorksWhenDescriptionStartsAndEndsWithInterpolation) {
-  const char* params[] = { "5", "6" };
-  const char* const desc = "%(x)s <= arg <= %(y)s";
-  const Interpolation interp[] = {
-    Interpolation(desc, desc + 5, 0),
-    Interpolation(desc + 16, desc + 21, 1)
-  };
-  EXPECT_EQ("5 <= arg <= 6",
-            FormatMatcherDescription("Foo", desc,
-                                     Interpolations(interp, interp + 2),
-                                     Strings(params, params + 2)));
-}
-
-TEST(FormatMatcherDescriptionTest,
-     WorksWhenDescriptionDoesNotStartOrEndWithInterpolation) {
-  const char* params[] = { "5.2" };
-  const char* const desc = "has %(x)s cents";
-  const Interpolation interp[] = { Interpolation(desc + 4, desc + 9, 0) };
-  EXPECT_EQ("has 5.2 cents",
-            FormatMatcherDescription("Foo", desc,
-                                     Interpolations(interp, interp + 1),
-                                     Strings(params, params + 1)));
-}
-
-TEST(FormatMatcherDescriptionTest,
-     WorksWhenDescriptionContainsMultipleInterpolations) {
-  const char* params[] = { "5", "6" };
-  const char* const desc = "in %(*)s or [%(x)s, %(y)s]";
-  const Interpolation interp[] = {
-    Interpolation(desc + 3, desc + 8, kTupleInterpolation),
-    Interpolation(desc + 13, desc + 18, 0),
-    Interpolation(desc + 20, desc + 25, 1)
-  };
-  EXPECT_EQ("in (5, 6) or [5, 6]",
-            FormatMatcherDescription("Foo", desc,
-                                     Interpolations(interp, interp + 3),
-                                     Strings(params, params + 2)));
-}
-
-TEST(FormatMatcherDescriptionTest,
-     WorksWhenDescriptionContainsRepeatedParams) {
-  const char* params[] = { "9" };
-  const char* const desc = "in [-%(x)s, %(x)s]";
-  const Interpolation interp[] = {
-    Interpolation(desc + 5, desc + 10, 0),
-    Interpolation(desc + 12, desc + 17, 0)
-  };
-  EXPECT_EQ("in [-9, 9]",
-            FormatMatcherDescription("Foo", desc,
-                                     Interpolations(interp, interp + 2),
-                                     Strings(params, params + 1)));
-}
-
-TEST(FormatMatcherDescriptionTest,
-     WorksForDescriptionWithInvalidInterpolation) {
-  const char* params[] = { "9" };
-  const char* const desc = "> %(x)s %(x)";
-  const Interpolation interp[] = { Interpolation(desc + 2, desc + 7, 0)  };
-  EXPECT_EQ("> 9 %(x)",
-            FormatMatcherDescription("Foo", desc,
-                                     Interpolations(interp, interp + 1),
-                                     Strings(params, params + 1)));
 }
 
 // Tests PolymorphicMatcher::mutable_impl().
@@ -3971,8 +3751,8 @@ TEST(MatcherTupleTest, ExplainsMatchFailure) {
                              make_tuple(2, 'b'), &ss2);
   EXPECT_EQ("  Expected arg #0: is > 5\n"
             "           Actual: 2, which is 3 less than 5\n"
-            "  Expected arg #1: is equal to 'a' (97)\n"
-            "           Actual: 'b' (98)\n",
+            "  Expected arg #1: is equal to 'a' (97, 0x61)\n"
+            "           Actual: 'b' (98, 0x62)\n",
             ss2.str());  // Failed match where both arguments need explanation.
 
   stringstream ss3;
@@ -3982,6 +3762,210 @@ TEST(MatcherTupleTest, ExplainsMatchFailure) {
             "           Actual: 2, which is 3 less than 5\n",
             ss3.str());  // Failed match where only one argument needs
                          // explanation.
+}
+
+// Tests Each().
+
+TEST(EachTest, ExplainsMatchResultCorrectly) {
+  set<int> a;  // empty
+
+  Matcher<set<int> > m = Each(2);
+  EXPECT_EQ("", Explain(m, a));
+
+  Matcher<const int(&)[1]> n = Each(1);
+
+  const int b[1] = { 1 };
+  EXPECT_EQ("", Explain(n, b));
+
+  n = Each(3);
+  EXPECT_EQ("whose element #0 doesn't match", Explain(n, b));
+
+  a.insert(1);
+  a.insert(2);
+  a.insert(3);
+  m = Each(GreaterThan(0));
+  EXPECT_EQ("", Explain(m, a));
+
+  m = Each(GreaterThan(10));
+  EXPECT_EQ("whose element #0 doesn't match, which is 9 less than 10",
+            Explain(m, a));
+}
+
+TEST(EachTest, DescribesItselfCorrectly) {
+  Matcher<vector<int> > m = Each(1);
+  EXPECT_EQ("only contains elements that is equal to 1", Describe(m));
+
+  Matcher<vector<int> > m2 = Not(m);
+  EXPECT_EQ("contains some element that isn't equal to 1", Describe(m2));
+}
+
+TEST(EachTest, MatchesVectorWhenAllElementsMatch) {
+  vector<int> some_vector;
+  EXPECT_THAT(some_vector, Each(1));
+  some_vector.push_back(3);
+  EXPECT_THAT(some_vector, Not(Each(1)));
+  EXPECT_THAT(some_vector, Each(3));
+  some_vector.push_back(1);
+  some_vector.push_back(2);
+  EXPECT_THAT(some_vector, Not(Each(3)));
+  EXPECT_THAT(some_vector, Each(Lt(3.5)));
+
+  vector<string> another_vector;
+  another_vector.push_back("fee");
+  EXPECT_THAT(another_vector, Each(string("fee")));
+  another_vector.push_back("fie");
+  another_vector.push_back("foe");
+  another_vector.push_back("fum");
+  EXPECT_THAT(another_vector, Not(Each(string("fee"))));
+}
+
+TEST(EachTest, MatchesMapWhenAllElementsMatch) {
+  map<const char*, int> my_map;
+  const char* bar = "a string";
+  my_map[bar] = 2;
+  EXPECT_THAT(my_map, Each(make_pair(bar, 2)));
+
+  map<string, int> another_map;
+  EXPECT_THAT(another_map, Each(make_pair(string("fee"), 1)));
+  another_map["fee"] = 1;
+  EXPECT_THAT(another_map, Each(make_pair(string("fee"), 1)));
+  another_map["fie"] = 2;
+  another_map["foe"] = 3;
+  another_map["fum"] = 4;
+  EXPECT_THAT(another_map, Not(Each(make_pair(string("fee"), 1))));
+  EXPECT_THAT(another_map, Not(Each(make_pair(string("fum"), 1))));
+  EXPECT_THAT(another_map, Each(Pair(_, Gt(0))));
+}
+
+TEST(EachTest, AcceptsMatcher) {
+  const int a[] = { 1, 2, 3 };
+  EXPECT_THAT(a, Each(Gt(0)));
+  EXPECT_THAT(a, Not(Each(Gt(1))));
+}
+
+TEST(EachTest, WorksForNativeArrayAsTuple) {
+  const int a[] = { 1, 2 };
+  const int* const pointer = a;
+  EXPECT_THAT(make_tuple(pointer, 2), Each(Gt(0)));
+  EXPECT_THAT(make_tuple(pointer, 2), Not(Each(Gt(1))));
+}
+
+// For testing Pointwise().
+class IsHalfOfMatcher {
+ public:
+  template <typename T1, typename T2>
+  bool MatchAndExplain(const tuple<T1, T2>& a_pair,
+                       MatchResultListener* listener) const {
+    if (get<0>(a_pair) == get<1>(a_pair)/2) {
+      *listener << "where the second is " << get<1>(a_pair);
+      return true;
+    } else {
+      *listener << "where the second/2 is " << get<1>(a_pair)/2;
+      return false;
+    }
+  }
+
+  void DescribeTo(ostream* os) const {
+    *os << "are a pair where the first is half of the second";
+  }
+
+  void DescribeNegationTo(ostream* os) const {
+    *os << "are a pair where the first isn't half of the second";
+  }
+};
+
+PolymorphicMatcher<IsHalfOfMatcher> IsHalfOf() {
+  return MakePolymorphicMatcher(IsHalfOfMatcher());
+}
+
+TEST(PointwiseTest, DescribesSelf) {
+  vector<int> rhs;
+  rhs.push_back(1);
+  rhs.push_back(2);
+  rhs.push_back(3);
+  const Matcher<const vector<int>&> m = Pointwise(IsHalfOf(), rhs);
+  EXPECT_EQ("contains 3 values, where each value and its corresponding value "
+            "in { 1, 2, 3 } are a pair where the first is half of the second",
+            Describe(m));
+  EXPECT_EQ("doesn't contain exactly 3 values, or contains a value x at some "
+            "index i where x and the i-th value of { 1, 2, 3 } are a pair "
+            "where the first isn't half of the second",
+            DescribeNegation(m));
+}
+
+TEST(PointwiseTest, MakesCopyOfRhs) {
+  list<signed char> rhs;
+  rhs.push_back(2);
+  rhs.push_back(4);
+
+  int lhs[] = { 1, 2 };
+  const Matcher<const int (&)[2]> m = Pointwise(IsHalfOf(), rhs);
+  EXPECT_THAT(lhs, m);
+
+  // Changing rhs now shouldn't affect m, which made a copy of rhs.
+  rhs.push_back(6);
+  EXPECT_THAT(lhs, m);
+}
+
+TEST(PointwiseTest, WorksForLhsNativeArray) {
+  const int lhs[] = { 1, 2, 3 };
+  vector<int> rhs;
+  rhs.push_back(2);
+  rhs.push_back(4);
+  rhs.push_back(6);
+  EXPECT_THAT(lhs, Pointwise(Lt(), rhs));
+  EXPECT_THAT(lhs, Not(Pointwise(Gt(), rhs)));
+}
+
+TEST(PointwiseTest, WorksForRhsNativeArray) {
+  const int rhs[] = { 1, 2, 3 };
+  vector<int> lhs;
+  lhs.push_back(2);
+  lhs.push_back(4);
+  lhs.push_back(6);
+  EXPECT_THAT(lhs, Pointwise(Gt(), rhs));
+  EXPECT_THAT(lhs, Not(Pointwise(Lt(), rhs)));
+}
+
+TEST(PointwiseTest, RejectsWrongSize) {
+  const double lhs[2] = { 1, 2 };
+  const int rhs[1] = { 0 };
+  EXPECT_THAT(lhs, Not(Pointwise(Gt(), rhs)));
+  EXPECT_EQ("which contains 2 values",
+            Explain(Pointwise(Gt(), rhs), lhs));
+
+  const int rhs2[3] = { 0, 1, 2 };
+  EXPECT_THAT(lhs, Not(Pointwise(Gt(), rhs2)));
+}
+
+TEST(PointwiseTest, RejectsWrongContent) {
+  const double lhs[3] = { 1, 2, 3 };
+  const int rhs[3] = { 2, 6, 4 };
+  EXPECT_THAT(lhs, Not(Pointwise(IsHalfOf(), rhs)));
+  EXPECT_EQ("where the value pair (2, 6) at index #1 don't match, "
+            "where the second/2 is 3",
+            Explain(Pointwise(IsHalfOf(), rhs), lhs));
+}
+
+TEST(PointwiseTest, AcceptsCorrectContent) {
+  const double lhs[3] = { 1, 2, 3 };
+  const int rhs[3] = { 2, 4, 6 };
+  EXPECT_THAT(lhs, Pointwise(IsHalfOf(), rhs));
+  EXPECT_EQ("", Explain(Pointwise(IsHalfOf(), rhs), lhs));
+}
+
+TEST(PointwiseTest, AllowsMonomorphicInnerMatcher) {
+  const double lhs[3] = { 1, 2, 3 };
+  const int rhs[3] = { 2, 4, 6 };
+  const Matcher<tuple<const double&, const int&> > m1 = IsHalfOf();
+  EXPECT_THAT(lhs, Pointwise(m1, rhs));
+  EXPECT_EQ("", Explain(Pointwise(m1, rhs), lhs));
+
+  // This type works as a tuple<const double&, const int&> can be
+  // implicitly cast to tuple<double, int>.
+  const Matcher<tuple<double, int> > m2 = IsHalfOf();
+  EXPECT_THAT(lhs, Pointwise(m2, rhs));
+  EXPECT_EQ("", Explain(Pointwise(m2, rhs), lhs));
 }
 
 }  // namespace gmock_matchers_test

@@ -12,7 +12,6 @@
                 'src/gmock-cardinalities.cc',
                 'src/gmock-internal-utils.cc',
                 'src/gmock-matchers.cc',
-                'src/gmock-printers.cc',
                 'src/gmock-spec-builders.cc',
                 'src/gmock.cc',
             ],

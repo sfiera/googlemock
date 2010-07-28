@@ -68,15 +68,16 @@ using testing::PolymorphicAction;
 using testing::Return;
 using testing::ReturnNull;
 using testing::ReturnRef;
+using testing::ReturnRefOfCopy;
 using testing::SetArgumentPointee;
 
 #if !GTEST_OS_WINDOWS_MOBILE
 using testing::SetErrnoAndReturn;
 #endif
 
-#if GMOCK_HAS_PROTOBUF_
+#if GTEST_HAS_PROTOBUF_
 using testing::internal::TestMessage;
-#endif  // GMOCK_HAS_PROTOBUF_
+#endif  // GTEST_HAS_PROTOBUF_
 
 // Tests that BuiltInDefaultValue<T*>::Get() returns NULL.
 TEST(BuiltInDefaultValueTest, IsNullForPointerTypes) {
@@ -584,6 +585,30 @@ TEST(ReturnRefTest, IsCovariant) {
   EXPECT_EQ(&derived, &a.Perform(make_tuple()));
 }
 
+// Tests that ReturnRefOfCopy(v) works for reference types.
+TEST(ReturnRefOfCopyTest, WorksForReference) {
+  int n = 42;
+  const Action<const int&()> ret = ReturnRefOfCopy(n);
+
+  EXPECT_NE(&n, &ret.Perform(make_tuple()));
+  EXPECT_EQ(42, ret.Perform(make_tuple()));
+
+  n = 43;
+  EXPECT_NE(&n, &ret.Perform(make_tuple()));
+  EXPECT_EQ(42, ret.Perform(make_tuple()));
+}
+
+// Tests that ReturnRefOfCopy(v) is covariant.
+TEST(ReturnRefOfCopyTest, IsCovariant) {
+  Base base;
+  Derived derived;
+  Action<Base&()> a = ReturnRefOfCopy(base);
+  EXPECT_NE(&base, &a.Perform(make_tuple()));
+
+  a = ReturnRefOfCopy(derived);
+  EXPECT_NE(&derived, &a.Perform(make_tuple()));
+}
+
 // Tests that DoDefault() does the default action for the mock method.
 
 class MyClass {};
@@ -689,7 +714,7 @@ TEST(SetArgumentPointeeTest, SetsTheNthPointee) {
   EXPECT_EQ('a', ch);
 }
 
-#if GMOCK_HAS_PROTOBUF_
+#if GTEST_HAS_PROTOBUF_
 
 // Tests that SetArgumentPointee<N>(proto_buffer) sets the v1 protobuf
 // variable pointed to by the N-th (0-based) argument to proto_buffer.
@@ -786,7 +811,7 @@ TEST(SetArgumentPointeeTest, SetsTheNthPointeeOfProto2BufferBaseType) {
   EXPECT_EQ("hi", dest.string_field());
 }
 
-#endif  // GMOCK_HAS_PROTOBUF_
+#endif  // GTEST_HAS_PROTOBUF_
 
 // Sample functions and functors for testing Invoke() and etc.
 int Nullary() { return 1; }

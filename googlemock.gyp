@@ -16,7 +16,6 @@
                 'src/gmock.cc',
             ],
             'dependencies': [
-                ':check-deps',
                 '<(DEPTH)/ext/googletest/googletest.gyp:gtest',
             ],
             'direct_dependent_settings': {
@@ -35,7 +34,6 @@
                 'src/gmock_main.cc',
             ],
             'dependencies': [
-                ':check-deps',
                 ':gmock',
             ],
             'export_dependent_settings': [

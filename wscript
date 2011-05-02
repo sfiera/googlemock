@@ -1,10 +1,5 @@
 # -*- mode: python -*-
 
-DEFAULTS = {
-    "cxxflags": "-Wall -Werror",
-    "arch": "x86_64 i386 ppc",
-}
-
 def common(ctx):
     ctx.load("compiler_cxx")
     ctx.load("externals", "ext/waf-sfiera")
@@ -29,21 +24,27 @@ def build(bld):
             "src/gmock-spec-builders.cc",
             "src/gmock.cc",
         ],
+        cxxflags="-Wall -Werror",
         includes=". ./include",
         export_includes="./include",
-        use=[
-            "googletest/common",
-            "googletest/gtest",
-        ],
-        **DEFAULTS
+        use="googletest/gtest",
+    )
+
+    bld.platform(
+        target="googlemock/gmock",
+        platform="darwin",
+        arch="x86_64 i386 ppc",
     )
 
     bld.stlib(
         target="googlemock/gmock_main",
         source="src/gmock_main.cc",
-        use=[
-            "googletest/common",
-            "googlemock/gmock",
-        ],
-        **DEFAULTS
+        cxxflags="-Wall -Werror",
+        use="googlemock/gmock",
+    )
+
+    bld.platform(
+        target="googlemock/gmock_main",
+        platform="darwin",
+        arch="x86_64 i386 ppc",
     )

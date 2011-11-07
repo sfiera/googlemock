@@ -16,6 +16,7 @@ def build(bld):
 
     bld.stlib(
         target="googlemock/gmock",
+        features="universal",
         source=[
             "src/gmock-cardinalities.cc",
             "src/gmock-internal-utils.cc",
@@ -29,21 +30,10 @@ def build(bld):
         use="googletest/gtest",
     )
 
-    bld.platform(
-        target="googlemock/gmock",
-        platform="darwin",
-        arch="x86_64 i386 ppc",
-    )
-
     bld.stlib(
         target="googlemock/gmock_main",
+        features="universal",
         source="src/gmock_main.cc",
         cxxflags="-Wall -Werror",
         use="googlemock/gmock",
-    )
-
-    bld.platform(
-        target="googlemock/gmock_main",
-        platform="darwin",
-        arch="x86_64 i386 ppc",
     )

@@ -25,6 +25,7 @@ def build(bld):
             "src/gmock.cc",
         ],
         cxxflags="-Wall -Werror",
+        defines="GTEST_USE_OWN_TR1_TUPLE",
         includes=". ./include",
         export_includes="./include",
         use="googletest/gtest",
@@ -35,5 +36,6 @@ def build(bld):
         features="universal",
         source="src/gmock_main.cc",
         cxxflags="-Wall -Werror",
+        defines="GTEST_USE_OWN_TR1_TUPLE",
         use="googlemock/gmock",
     )
